@@ -305,19 +305,20 @@ function buildApp(config) {
       crossOriginResourcePolicy: false,
     }),
   );
-  app.use(
-    cors({
-      origin(origin, callback) {
-        if (!origin || config.allowedOrigins.includes(origin)) {
-          callback(null, true);
-          return;
-        }
-        callback(new Error("Origin is not allowed by CORS."));
-      },
-      methods: ["GET", "POST"],
-    }),
-  );
   app.use(express.json({ limit: "6mb" }));
+
+  const apiCors = cors({
+    origin(origin, callback) {
+      if (!origin || config.allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error("Origin is not allowed by CORS."));
+    },
+    methods: ["GET", "POST", "OPTIONS"],
+  });
+
+  app.use("/api", apiCors);
 
   const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
