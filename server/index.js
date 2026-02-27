@@ -11,7 +11,10 @@ import { z } from "zod";
 dotenv.config();
 
 const DEFAULT_ALLOWED_ORIGINS = ["http://localhost:5173"];
-const DEFAULT_MODEL = "claude-sonnet-4-20250514";
+const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+const DEFAULT_GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
+const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
+const PROVIDER_PRIORITY = ["gemini", "groq", "anthropic"];
 const IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const ALLOWED_UPLOAD_MIME_TYPES = new Set([...IMAGE_MIME_TYPES, "application/pdf", "text/plain"]);
 const SUPPORTED_LANGUAGES = ["en", "es", "fr"];
@@ -223,7 +226,17 @@ Rules:
 4. Encouragement`;
 }
 
-function buildUserContent({ symptoms, childName, childAge, language, readingLevel, file }) {
+function buildUserText({ symptoms, childName, childAge, language, readingLevel, file }) {
+  let text = `Hi Dr. Buddy. I am ${childName}, ${childAge}. My symptoms: ${symptoms}. Preferred language: ${language}. Reading level: ${readingLevel}.`;
+  if (file?.base64 && file.isImage) {
+    text += " I uploaded a lab image. Please read and explain it simply for a child.";
+  } else if (file?.base64 && !file.isImage) {
+    text += " I uploaded a non-image file. Please provide advice from symptoms only.";
+  }
+  return text;
+}
+
+function buildAnthropicUserContent({ text, file }) {
   if (file?.base64 && file.isImage) {
     return [
       {
@@ -234,19 +247,202 @@ function buildUserContent({ symptoms, childName, childAge, language, readingLeve
           data: file.base64,
         },
       },
-      {
-        type: "text",
-        text: `Hi Dr. Buddy. I am ${childName}, ${childAge}. My symptoms: ${symptoms}. Preferred language: ${language}. Reading level: ${readingLevel}. Please read my lab image and explain it simply for a child.`,
-      },
+      { type: "text", text },
     ];
   }
+  return [{ type: "text", text }];
+}
 
-  let text = `Hi Dr. Buddy. I am ${childName}, ${childAge}. My symptoms: ${symptoms}. Preferred language: ${language}. Reading level: ${readingLevel}.`;
-  if (file?.base64 && !file.isImage) {
-    text += " I uploaded a non-image file. Please provide advice from symptoms only.";
+async function parseJsonSafe(response) {
+  return response.json().catch(() => ({}));
+}
+
+function extractGeminiText(data) {
+  return (
+    data?.candidates?.[0]?.content?.parts
+      ?.map((part) => part?.text || "")
+      .join("\n")
+      .trim() || ""
+  );
+}
+
+function extractGroqText(data) {
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content === "string") {
+    return content.trim();
+  }
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => (typeof part?.text === "string" ? part.text : ""))
+      .join("\n")
+      .trim();
+  }
+  return "";
+}
+
+function extractAnthropicText(data) {
+  return Array.isArray(data?.content)
+    ? data.content
+        .map((block) => (block.type === "text" ? block.text : ""))
+        .join("\n")
+        .trim()
+    : "";
+}
+
+async function requestGeminiDiagnosis({ config, systemPrompt, userText, file }) {
+  const parts = [{ text: userText }];
+  if (file?.base64 && file.isImage) {
+    parts.unshift({
+      inline_data: {
+        mime_type: file.mimeType,
+        data: file.base64,
+      },
+    });
   }
 
-  return [{ type: "text", text }];
+  const response = await config.fetchImpl(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(config.geminiModel)}:generateContent?key=${encodeURIComponent(config.geminiApiKey)}`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: systemPrompt }],
+        },
+        contents: [{ role: "user", parts }],
+        generationConfig: {
+          maxOutputTokens: 900,
+          temperature: 0.4,
+        },
+      }),
+    },
+  );
+
+  const data = await parseJsonSafe(response);
+  if (!response.ok) {
+    const message = data?.error?.message || "Gemini request failed.";
+    throw new Error(message);
+  }
+
+  const text = extractGeminiText(data);
+  if (!text) {
+    throw new Error("Gemini returned an empty response.");
+  }
+  return text;
+}
+
+async function requestGroqDiagnosis({ config, systemPrompt, userText, file }) {
+  const content = [{ type: "text", text: userText }];
+  if (file?.base64 && file.isImage) {
+    content.push({
+      type: "image_url",
+      image_url: { url: `data:${file.mimeType};base64,${file.base64}` },
+    });
+  }
+
+  const response = await config.fetchImpl("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${config.groqApiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.groqModel,
+      max_tokens: 900,
+      temperature: 0.4,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content },
+      ],
+    }),
+  });
+
+  const data = await parseJsonSafe(response);
+  if (!response.ok) {
+    const message = data?.error?.message || data?.error || "Groq request failed.";
+    throw new Error(message);
+  }
+
+  const text = extractGroqText(data);
+  if (!text) {
+    throw new Error("Groq returned an empty response.");
+  }
+  return text;
+}
+
+async function requestAnthropicDiagnosis({ config, systemPrompt, userText, file }) {
+  const response = await config.fetchImpl("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": config.anthropicApiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: config.anthropicModel,
+      max_tokens: 900,
+      system: systemPrompt,
+      messages: [
+        {
+          role: "user",
+          content: buildAnthropicUserContent({ text: userText, file }),
+        },
+      ],
+    }),
+  });
+
+  const data = await parseJsonSafe(response);
+  if (!response.ok) {
+    const message = data?.error?.message || "Anthropic request failed.";
+    throw new Error(message);
+  }
+
+  const text = extractAnthropicText(data);
+  if (!text) {
+    throw new Error("Anthropic returned an empty response.");
+  }
+  return text;
+}
+
+async function requestWithFallback({ config, systemPrompt, userText, file }) {
+  const providers = [
+    {
+      name: "gemini",
+      enabled: Boolean(config.geminiApiKey),
+      request: () => requestGeminiDiagnosis({ config, systemPrompt, userText, file }),
+    },
+    {
+      name: "groq",
+      enabled: Boolean(config.groqApiKey),
+      request: () => requestGroqDiagnosis({ config, systemPrompt, userText, file }),
+    },
+    {
+      name: "anthropic",
+      enabled: Boolean(config.anthropicApiKey),
+      request: () => requestAnthropicDiagnosis({ config, systemPrompt, userText, file }),
+    },
+  ];
+
+  const enabledProviders = providers.filter((provider) => provider.enabled);
+  if (enabledProviders.length === 0) {
+    throw new Error("No AI provider key configured.");
+  }
+
+  const errors = [];
+  for (const providerName of PROVIDER_PRIORITY) {
+    const provider = enabledProviders.find((entry) => entry.name === providerName);
+    if (!provider) {
+      continue;
+    }
+    try {
+      const text = await provider.request();
+      return { provider: provider.name, text };
+    } catch (error) {
+      errors.push(`${provider.name}: ${error.message || "failed"}`);
+    }
+  }
+
+  throw new Error(`All providers failed. ${errors.join(" | ")}`);
 }
 
 function requestLogger(enabled) {
@@ -277,11 +473,15 @@ function requestLogger(enabled) {
 }
 
 export function createServerConfig(overrides = {}) {
-  return {
+  const resolved = {
     nodeEnv: process.env.NODE_ENV || "development",
     port: parsePositiveInt(process.env.PORT, 8787),
-    model: process.env.MODEL || DEFAULT_MODEL,
-    apiKey: process.env.ANTHROPIC_API_KEY || "",
+    geminiApiKey: process.env.GEMINI_API_KEY || "",
+    groqApiKey: process.env.GROQ_API_KEY || "",
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
+    geminiModel: process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
+    groqModel: process.env.GROQ_MODEL || DEFAULT_GROQ_MODEL,
+    anthropicModel: process.env.ANTHROPIC_MODEL || process.env.MODEL || DEFAULT_ANTHROPIC_MODEL,
     allowedOrigins: parseAllowedOrigins(process.env.CORS_ORIGIN),
     diagnoseRateLimitMax: parsePositiveInt(process.env.RATE_LIMIT_MAX, 20),
     apiRateLimitMax: parsePositiveInt(process.env.API_RATE_LIMIT_MAX, 120),
@@ -291,6 +491,12 @@ export function createServerConfig(overrides = {}) {
     fetchImpl: globalThis.fetch,
     ...overrides,
   };
+
+  if (resolved.apiKey && !resolved.anthropicApiKey) {
+    resolved.anthropicApiKey = resolved.apiKey;
+  }
+
+  return resolved;
 }
 
 function buildApp(config) {
@@ -346,9 +552,9 @@ function buildApp(config) {
   });
 
   app.post("/api/diagnose", diagnoseLimiter, async (req, res) => {
-    if (!config.apiKey) {
+    if (!config.geminiApiKey && !config.groqApiKey && !config.anthropicApiKey) {
       res.status(500).json({
-        error: "Server is missing ANTHROPIC_API_KEY. Add it to .env before using diagnose.",
+        error: "Server is missing provider keys. Configure GEMINI_API_KEY, GROQ_API_KEY, or ANTHROPIC_API_KEY.",
       });
       return;
     }
@@ -371,63 +577,33 @@ function buildApp(config) {
     const ageText = String(payload.age || "").trim();
     const childAge = ageText ? `${ageText} years old` : "a young child";
     const triage = detectTriage(payload.symptoms, payload.language);
+    const systemPrompt = buildSystemPrompt({
+      childName,
+      childAge,
+      language: payload.language,
+      readingLevel: payload.readingLevel,
+      triageLevel: triage.level,
+    });
+    const userText = buildUserText({
+      symptoms: payload.symptoms,
+      childName,
+      childAge,
+      language: payload.language,
+      readingLevel: payload.readingLevel,
+      file: payload.file,
+    });
 
     try {
-      const anthropicResponse = await config.fetchImpl("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": config.apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify({
-          model: config.model,
-          max_tokens: 900,
-          system: buildSystemPrompt({
-            childName,
-            childAge,
-            language: payload.language,
-            readingLevel: payload.readingLevel,
-            triageLevel: triage.level,
-          }),
-          messages: [
-            {
-              role: "user",
-              content: buildUserContent({
-                symptoms: payload.symptoms,
-                childName,
-                childAge,
-                language: payload.language,
-                readingLevel: payload.readingLevel,
-                file: payload.file,
-              }),
-            },
-          ],
-        }),
+      const diagnosis = await requestWithFallback({
+        config,
+        systemPrompt,
+        userText,
+        file: payload.file,
       });
 
-      const data = await anthropicResponse.json().catch(() => ({}));
-      if (!anthropicResponse.ok) {
-        res.status(502).json({
-          error: data.error?.message || "Anthropic request failed.",
-        });
-        return;
-      }
-
-      const text = Array.isArray(data.content)
-        ? data.content
-            .map((block) => (block.type === "text" ? block.text : ""))
-            .join("\n")
-            .trim()
-        : "";
-
-      if (!text) {
-        res.status(502).json({ error: "No diagnosis response was returned by the model." });
-        return;
-      }
-
       res.json({
-        result: text,
+        result: diagnosis.text,
+        provider: diagnosis.provider,
         triage,
         handoff: {
           createdAt: new Date().toISOString(),
@@ -438,8 +614,8 @@ function buildApp(config) {
           readingLevel: payload.readingLevel,
         },
       });
-    } catch {
-      res.status(502).json({ error: "Could not reach AI provider. Please try again." });
+    } catch (error) {
+      res.status(502).json({ error: error.message || "Could not reach AI provider. Please try again." });
     }
   });
 

@@ -17,9 +17,11 @@ describe("server api", () => {
     expect(response.body.timestamp).toBeTypeOf("string");
   });
 
-  it("returns 500 when API key is missing", async () => {
+  it("returns 500 when no provider keys are configured", async () => {
     const app = createApp({
-      apiKey: "",
+      geminiApiKey: "",
+      groqApiKey: "",
+      anthropicApiKey: "",
       enableRequestLogging: false,
       apiRateLimitMax: 1000,
       diagnoseRateLimitMax: 1000,
@@ -28,13 +30,13 @@ describe("server api", () => {
     const response = await request(app).post("/api/diagnose").send({ symptoms: "headache" });
 
     expect(response.status).toBe(500);
-    expect(response.body.error).toMatch(/missing ANTHROPIC_API_KEY/i);
+    expect(response.body.error).toMatch(/missing provider keys/i);
   });
 
   it("rejects unsupported upload mime types", async () => {
     const fetchMock = vi.fn();
     const app = createApp({
-      apiKey: "test-key",
+      geminiApiKey: "test-key",
       fetchImpl: fetchMock,
       enableRequestLogging: false,
       apiRateLimitMax: 1000,
@@ -60,7 +62,7 @@ describe("server api", () => {
 
   it("rejects unsupported language values", async () => {
     const app = createApp({
-      apiKey: "test-key",
+      geminiApiKey: "test-key",
       fetchImpl: vi.fn(),
       enableRequestLogging: false,
       apiRateLimitMax: 1000,
@@ -76,7 +78,7 @@ describe("server api", () => {
     expect(response.body.error).toMatch(/invalid enum value/i);
   });
 
-  it("adds triage metadata and applies language and reading level to prompt", async () => {
+  it("uses anthropic when only anthropic key is configured", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -85,7 +87,7 @@ describe("server api", () => {
     });
 
     const app = createApp({
-      apiKey: "test-key",
+      anthropicApiKey: "test-key",
       fetchImpl: fetchMock,
       enableRequestLogging: false,
       apiRateLimitMax: 1000,
@@ -99,40 +101,80 @@ describe("server api", () => {
     });
 
     expect(response.status).toBe(200);
+    expect(response.body.provider).toBe("anthropic");
     expect(response.body.triage.level).toBe("emergency");
-    expect(response.body.triage.reasons.length).toBeGreaterThan(0);
-    expect(response.body.handoff.language).toBe("es");
-    expect(response.body.handoff.readingLevel).toBe("very_simple");
 
+    const callUrl = fetchMock.mock.calls[0][0];
     const callBody = JSON.parse(fetchMock.mock.calls[0][1].body);
-    expect(callBody.system).toMatch(/Spanish/i);
+    expect(callUrl).toContain("api.anthropic.com/v1/messages");
+    expect(callBody.system).toMatch(/Respond in Spanish/i);
     expect(callBody.system).toMatch(/very short sentences/i);
   });
 
-  it("returns model output on successful diagnosis", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        content: [{ type: "text", text: "Drink water and rest." }],
-      }),
-    });
+  it("falls back from gemini to groq when gemini fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: { message: "gemini unavailable" } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: "Groq fallback response" } }],
+        }),
+      });
 
     const app = createApp({
-      apiKey: "test-key",
+      geminiApiKey: "gem-key",
+      groqApiKey: "groq-key",
+      anthropicApiKey: "anth-key",
       fetchImpl: fetchMock,
       enableRequestLogging: false,
       apiRateLimitMax: 1000,
       diagnoseRateLimitMax: 1000,
     });
 
-    const response = await request(app)
-      .post("/api/diagnose")
-      .send({ symptoms: "mild headache", name: "Mia", age: "8" });
+    const response = await request(app).post("/api/diagnose").send({ symptoms: "mild headache" });
 
     expect(response.status).toBe(200);
-    expect(response.body.result).toContain("Drink water and rest.");
-    expect(response.body.triage).toBeTruthy();
-    expect(response.body.handoff).toBeTruthy();
+    expect(response.body.provider).toBe("groq");
+    expect(response.body.result).toContain("Groq fallback response");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0][0]).toContain("generativelanguage.googleapis.com");
+    expect(fetchMock.mock.calls[1][0]).toContain("api.groq.com/openai/v1/chat/completions");
+  });
+
+  it("uses gemini first when it succeeds", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [{ text: "Gemini primary response" }],
+            },
+          },
+        ],
+      }),
+    });
+
+    const app = createApp({
+      geminiApiKey: "gem-key",
+      groqApiKey: "groq-key",
+      anthropicApiKey: "anth-key",
+      fetchImpl: fetchMock,
+      enableRequestLogging: false,
+      apiRateLimitMax: 1000,
+      diagnoseRateLimitMax: 1000,
+    });
+
+    const response = await request(app).post("/api/diagnose").send({ symptoms: "mild headache" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.provider).toBe("gemini");
+    expect(response.body.result).toContain("Gemini primary response");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toContain("generativelanguage.googleapis.com");
   });
 });

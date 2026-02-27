@@ -3,7 +3,7 @@
 KidDoc is a kid-friendly symptom explainer app with:
 
 - React + Vite frontend
-- Express backend proxy for Anthropic API
+- Express backend with provider fallback (`Gemini -> Groq -> Anthropic`)
 - Input validation with `zod`
 - Request logging, security headers, rate limiting, and upload guards
 - CI pipeline with lint + tests + build checks
@@ -16,6 +16,16 @@ KidDoc is a kid-friendly symptom explainer app with:
 ## Why this structure
 
 The original single-file app called the AI provider directly from the browser, which is not production-safe. This version keeps the API key server-side and enforces backend protections before calling the model.
+
+## AI provider fallback order
+
+The server attempts providers in this exact order:
+
+1. Gemini
+2. Groq
+3. Anthropic
+
+If one provider fails, the next provider is attempted automatically.
 
 ## Prerequisites
 
@@ -80,16 +90,21 @@ How it works:
 
 1. Connect your GitHub repo in Render.
 2. Choose Blueprint deploy and select this `render.yaml`.
-3. Set required secrets (`ANTHROPIC_API_KEY`, `CORS_ORIGIN`) in Render.
+3. Set required secrets (`GEMINI_API_KEY` and/or `GROQ_API_KEY` and/or `ANTHROPIC_API_KEY`, plus `CORS_ORIGIN`) in Render.
 4. Keep branch as `main`.
 
 `autoDeploy: true` is enabled, so every new commit pushed to `main` triggers automatic deployment.
 
 ## Environment variables
 
-- `ANTHROPIC_API_KEY` (required)
+- `GEMINI_API_KEY` (optional, recommended primary)
+- `GROQ_API_KEY` (optional, recommended secondary)
+- `ANTHROPIC_API_KEY` (optional, tertiary fallback)
 - `PORT` (default: `8787`)
-- `MODEL` (default: `claude-sonnet-4-20250514`)
+- `GEMINI_MODEL` (default: `gemini-2.5-flash`)
+- `GROQ_MODEL` (default: `meta-llama/llama-4-scout-17b-16e-instruct`)
+- `ANTHROPIC_MODEL` (default: `claude-sonnet-4-20250514`)
+- `MODEL` (backward-compatible alias for `ANTHROPIC_MODEL`)
 - `CORS_ORIGIN` (default: `http://localhost:5173`, comma-separated for multiple)
 - `RATE_LIMIT_MAX` (default: `20` requests/10 minutes for `/api/diagnose`)
 - `API_RATE_LIMIT_MAX` (default: `120` requests/15 minutes for all `/api/*`)
