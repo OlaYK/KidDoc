@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: kiddoc
+    env: node
+    plan: starter
+    branch: main
+    autoDeploy: true
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: RATE_LIMIT_MAX
+        value: "20"
+      - key: API_RATE_LIMIT_MAX
+        value: "120"
+      - key: MAX_FILE_BYTES
+        value: "4194304"
+      - key: MODEL
+        value: claude-sonnet-4-20250514
