@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+﻿import { useRef, useState } from "react";
 
 const MAX_UPLOAD_MB = 4;
 const IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -17,40 +17,71 @@ const READING_LEVEL_OPTIONS = [
 const THEMES = {
   pink: {
     name: "Pinky",
+    emoji: "🌸",
+    star: "✨",
     bg: "linear-gradient(135deg, #ffb6d9 0%, #ff8ec8 45%, #ffd6ec 100%)",
-    card: "rgba(255,255,255,0.9)",
+    card: "rgba(255,255,255,0.88)",
     primary: "#ff2f90",
+    secondary: "#d91574",
     text: "#7a0046",
     bubble: "#fff0f8",
     border: "#ffb6d9",
     btn: "linear-gradient(135deg, #ff4ca3, #d91574)",
     btnText: "#fff",
-    shadow: "rgba(255, 76, 163, 0.28)",
+    shadow: "rgba(255, 76, 163, 0.30)",
   },
   sky: {
-    name: "Sky",
+    name: "Ocean",
+    emoji: "💙",
+    star: "⭐",
     bg: "linear-gradient(135deg, #cae9ff 0%, #8cc9ff 45%, #e7f4ff 100%)",
-    card: "rgba(255,255,255,0.9)",
+    card: "rgba(255,255,255,0.88)",
     primary: "#1f74d9",
+    secondary: "#1761c0",
     text: "#0f3f7e",
     bubble: "#edf6ff",
     border: "#b4dbff",
     btn: "linear-gradient(135deg, #3d92f3, #1761c0)",
     btnText: "#fff",
-    shadow: "rgba(31, 116, 217, 0.24)",
+    shadow: "rgba(31, 116, 217, 0.28)",
   },
   mint: {
-    name: "Mint",
+    name: "Jungle",
+    emoji: "🌿",
+    star: "🍀",
     bg: "linear-gradient(135deg, #c9f2db 0%, #8ce3b5 45%, #e9fff2 100%)",
-    card: "rgba(255,255,255,0.9)",
+    card: "rgba(255,255,255,0.88)",
     primary: "#177a46",
+    secondary: "#14683b",
     text: "#145933",
     bubble: "#edfff4",
     border: "#b4ebca",
     btn: "linear-gradient(135deg, #35a568, #167543)",
     btnText: "#fff",
-    shadow: "rgba(23, 122, 70, 0.24)",
+    shadow: "rgba(23, 122, 70, 0.28)",
   },
+  gold: {
+    name: "Golden",
+    emoji: "🌟",
+    star: "✨",
+    bg: "linear-gradient(135deg, #ffe99a 0%, #ffd667 45%, #fff7d4 100%)",
+    card: "rgba(255,255,255,0.9)",
+    primary: "#cc8a00",
+    secondary: "#a96f00",
+    text: "#6a4700",
+    bubble: "#fff9e8",
+    border: "#ffd667",
+    btn: "linear-gradient(135deg, #f2b31f, #c48600)",
+    btnText: "#fff",
+    shadow: "rgba(196, 134, 0, 0.30)",
+  },
+};
+
+const MASCOTS = {
+  doctor: { emoji: "🧑‍⚕️", name: "Dr. Buddy", msg: "Hi friend. Tell me how you feel." },
+  robot: { emoji: "🤖", name: "MediBot", msg: "Beep beep. I am ready to help." },
+  bear: { emoji: "🐻", name: "Dr. Bear", msg: "You are brave. We can do this together." },
+  unicorn: { emoji: "🦄", name: "Uni-Doc", msg: "Magic checkup mode activated." },
 };
 
 function readFileAsDataUrl(file) {
@@ -85,7 +116,7 @@ function defaultHandoff({ name, age, symptoms, language, readingLevel }) {
 function triageStyle(level) {
   if (level === "emergency") {
     return {
-      background: "rgba(255, 82, 82, 0.2)",
+      background: "rgba(255, 82, 82, 0.20)",
       border: "2px solid #c62828",
       color: "#6d0c0c",
     };
@@ -93,22 +124,72 @@ function triageStyle(level) {
 
   if (level === "caution") {
     return {
-      background: "rgba(255, 193, 7, 0.2)",
+      background: "rgba(255, 193, 7, 0.22)",
       border: "2px solid #f57c00",
       color: "#7a4300",
     };
   }
 
   return {
-    background: "rgba(76, 175, 80, 0.2)",
+    background: "rgba(76, 175, 80, 0.18)",
     border: "2px solid #2e7d32",
     color: "#165519",
   };
 }
 
+function FloatingBubble({ icon, style }) {
+  return (
+    <div
+      style={{
+        position: "absolute",
+        fontSize: "1.6rem",
+        opacity: 0.35,
+        animation: "floatUp 7s ease-in-out infinite",
+        pointerEvents: "none",
+        ...style,
+      }}
+    >
+      {icon}
+    </div>
+  );
+}
+
+function StarRain({ symbol }) {
+  const items = Array.from({ length: 12 }, (_, i) => i);
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        overflow: "hidden",
+        pointerEvents: "none",
+        zIndex: 0,
+      }}
+    >
+      {items.map((item) => (
+        <div
+          key={item}
+          style={{
+            position: "absolute",
+            left: `${(item * 8.2) % 100}%`,
+            top: "-40px",
+            opacity: 0.45,
+            animation: `starFall ${3.5 + (item % 4)}s linear infinite`,
+            animationDelay: `${(item * 0.6) % 5}s`,
+            fontSize: `${0.9 + (item % 3) * 0.35}rem`,
+          }}
+        >
+          {symbol}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function App() {
   const [themeName, setThemeName] = useState("pink");
   const [showThemePicker, setShowThemePicker] = useState(false);
+  const [mascotKey, setMascotKey] = useState("doctor");
   const [name, setName] = useState("");
   const [age, setAge] = useState("");
   const [symptoms, setSymptoms] = useState("");
@@ -126,26 +207,32 @@ export default function App() {
   const fileRef = useRef(null);
 
   const theme = THEMES[themeName];
+  const mascot = MASCOTS[mascotKey];
 
   const cardStyle = {
     background: theme.card,
-    borderRadius: "22px",
-    padding: "20px",
+    backdropFilter: "blur(10px)",
+    borderRadius: "24px",
+    padding: "22px",
     marginBottom: "14px",
     border: `2px solid ${theme.border}`,
-    boxShadow: `0 8px 26px ${theme.shadow}`,
+    boxShadow: `0 10px 28px ${theme.shadow}`,
+    position: "relative",
+    zIndex: 2,
+    animation: "cardIn .35s ease",
   };
 
   const inputStyle = {
     width: "100%",
     padding: "12px 14px",
-    borderRadius: "12px",
+    borderRadius: "14px",
     border: `2px solid ${theme.border}`,
     background: theme.bubble,
     color: theme.text,
     fontSize: "1rem",
     boxSizing: "border-box",
     fontFamily: "inherit",
+    outline: "none",
   };
 
   const buttonStyle = {
@@ -170,6 +257,12 @@ export default function App() {
     if (fileRef.current) {
       fileRef.current.value = "";
     }
+  };
+
+  const cycleMascot = () => {
+    const keys = Object.keys(MASCOTS);
+    const index = keys.indexOf(mascotKey);
+    setMascotKey(keys[(index + 1) % keys.length]);
   };
 
   const handleFileUpload = async (event) => {
@@ -255,7 +348,16 @@ export default function App() {
 
       setResult(data.result || "No response was returned. Please try again.");
       setTriage(data.triage || null);
-      setHandoff(data.handoff || defaultHandoff({ name: name.trim(), age: age.trim(), symptoms: symptoms.trim(), language, readingLevel }));
+      setHandoff(
+        data.handoff ||
+          defaultHandoff({
+            name: name.trim(),
+            age: age.trim(),
+            symptoms: symptoms.trim(),
+            language,
+            readingLevel,
+          }),
+      );
     } catch (requestError) {
       setError(requestError.message || "Something went wrong. Please try again.");
     } finally {
@@ -349,24 +451,71 @@ export default function App() {
         background: theme.bg,
         fontFamily: "'Nunito', 'Trebuchet MS', sans-serif",
         color: theme.text,
-        transition: "background .4s ease",
+        transition: "background .5s ease",
+        position: "relative",
+        overflowX: "hidden",
       }}
     >
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap');
         * { box-sizing: border-box; }
-        button:hover { filter: brightness(1.04); }
+        @keyframes floatUp {
+          0%, 100% { transform: translateY(0) rotate(0deg); opacity: .28; }
+          50% { transform: translateY(-18px) rotate(12deg); opacity: .55; }
+        }
+        @keyframes starFall {
+          0% { transform: translateY(-40px) rotate(0deg); opacity: 0; }
+          12% { opacity: .45; }
+          88% { opacity: .45; }
+          100% { transform: translateY(110vh) rotate(360deg); opacity: 0; }
+        }
+        @keyframes mascotBounce {
+          0%, 100% { transform: translateY(0) scale(1); }
+          50% { transform: translateY(-8px) scale(1.05); }
+        }
+        @keyframes cardIn {
+          0% { opacity: 0; transform: translateY(14px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+        .chip-btn:hover { transform: scale(1.05) !important; }
+        .main-btn:hover { transform: scale(1.04) !important; }
+        textarea:focus, input:focus, select:focus {
+          border-color: ${theme.primary} !important;
+          box-shadow: 0 0 0 3px ${theme.shadow};
+        }
       `}</style>
 
-      <div style={{ maxWidth: "620px", margin: "0 auto", padding: "20px 14px 24px" }}>
+      <StarRain symbol={theme.star} />
+      <FloatingBubble icon={theme.emoji} style={{ top: "9%", left: "4%", animationDelay: "0s" }} />
+      <FloatingBubble icon="🩺" style={{ top: "22%", right: "6%", animationDelay: "1.2s" }} />
+      <FloatingBubble icon="💊" style={{ top: "62%", left: "3%", animationDelay: "1.9s" }} />
+      <FloatingBubble icon={theme.emoji} style={{ top: "74%", right: "8%", animationDelay: "2.4s" }} />
+
+      <div style={{ maxWidth: "620px", margin: "0 auto", padding: "20px 14px 24px", position: "relative", zIndex: 2 }}>
         <div style={{ textAlign: "center", marginBottom: "16px" }}>
-          <h1 style={{ margin: "0 0 6px", fontSize: "2rem", fontWeight: 900 }}>MediKids</h1>
-          <p style={{ margin: 0, fontWeight: 700 }}>Friendly symptom support for kids and caregivers</p>
+          <button
+            type="button"
+            onClick={cycleMascot}
+            aria-label="Change mascot"
+            style={{
+              border: "none",
+              background: "transparent",
+              fontSize: "3.5rem",
+              lineHeight: 1,
+              cursor: "pointer",
+              animation: "mascotBounce 2s ease-in-out infinite",
+            }}
+          >
+            {mascot.emoji}
+          </button>
+          <h1 style={{ margin: "6px 0", fontSize: "2.1rem", fontWeight: 900 }}>MediKids {theme.emoji}</h1>
+          <p style={{ margin: 0, fontWeight: 800, color: theme.primary }}>{mascot.name} says: "{name.trim() ? `Hi ${name.trim()}! I am here to help.` : mascot.msg}"</p>
+          <p style={{ margin: "4px 0 0", opacity: 0.7, fontSize: "0.8rem" }}>Tap the mascot to switch character</p>
         </div>
 
         <div style={cardStyle}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <strong>Theme</strong>
+            <strong>Pick Theme</strong>
             <button
               type="button"
               onClick={() => setShowThemePicker((open) => !open)}
@@ -389,6 +538,7 @@ export default function App() {
                 <button
                   key={key}
                   type="button"
+                  className="chip-btn"
                   onClick={() => {
                     setThemeName(key);
                     setShowThemePicker(false);
@@ -396,14 +546,15 @@ export default function App() {
                   style={{
                     background: option.btn,
                     color: option.btnText,
-                    border: key === themeName ? "3px solid #222" : "3px solid transparent",
+                    border: key === themeName ? "3px solid #111" : "3px solid transparent",
                     borderRadius: "999px",
                     padding: "8px 14px",
                     fontWeight: 700,
                     cursor: "pointer",
+                    transition: "transform .2s ease",
                   }}
                 >
-                  {option.name}
+                  {option.emoji} {option.name}
                 </button>
               ))}
             </div>
@@ -496,6 +647,9 @@ export default function App() {
                 style={{ ...inputStyle, resize: "vertical", lineHeight: "1.5" }}
                 maxLength={1500}
               />
+              <p style={{ margin: "8px 0 0", fontSize: "0.8rem", opacity: 0.75 }}>
+                The more details you share, the better the explanation.
+              </p>
             </div>
 
             <div style={cardStyle}>
@@ -572,10 +726,10 @@ export default function App() {
             )}
 
             <div style={{ textAlign: "center" }}>
-              <button className="big-btn" type="button" onClick={runDiagnosis} disabled={loading} style={buttonStyle}>
+              <button className="main-btn" type="button" onClick={runDiagnosis} disabled={loading} style={buttonStyle}>
                 {loading ? "Checking..." : name.trim() ? `Check ${name.trim()}'s Health` : "Check My Health"}
               </button>
-              <p style={{ margin: "8px 0 0", fontSize: "0.75rem", opacity: 0.65 }}>
+              <p style={{ margin: "8px 0 0", fontSize: "0.75rem", opacity: 0.68 }}>
                 Educational use only. Always seek real medical care for concerning symptoms.
               </p>
             </div>
@@ -597,15 +751,15 @@ export default function App() {
             )}
 
             <div style={{ ...cardStyle, border: `3px solid ${theme.primary}` }}>
-              <h2 style={{ margin: "0 0 10px", fontSize: "1.3rem" }}>Health Report</h2>
+              <h2 style={{ margin: "0 0 10px", fontSize: "1.35rem" }}>Health Report {theme.emoji}</h2>
               <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
-                Language: {LANGUAGE_OPTIONS.find((option) => option.value === language)?.label || "English"} | Reading Level: {" "}
+                Language: {LANGUAGE_OPTIONS.find((option) => option.value === language)?.label || "English"} | Reading Level:{" "}
                 {READING_LEVEL_OPTIONS.find((option) => option.value === readingLevel)?.label || "Simple"}
               </p>
               <div
                 style={{
                   background: theme.bubble,
-                  borderRadius: "12px",
+                  borderRadius: "14px",
                   padding: "16px",
                   whiteSpace: "pre-wrap",
                   lineHeight: "1.6",
@@ -634,7 +788,7 @@ export default function App() {
         )}
 
         <p style={{ textAlign: "center", margin: "18px 0 4px", fontSize: "0.75rem", opacity: 0.6 }}>
-          MediKids | Powered by AI | Built for child-friendly education
+          MediKids {theme.emoji} | Powered by AI | Made with care for kids
         </p>
       </div>
     </div>
